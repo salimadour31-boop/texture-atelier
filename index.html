@@ -1,1 +1,145 @@
-PLACEHOLDER
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Texture Atelier — Générateur de textures procédurales</title>
+  <style>
+    :root { --bg: #0f0f12; --fg: #e8e6e3; --accent: #c9a96e; --card: #1a1a1f; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); min-height: 100vh; }
+    header { padding: 1rem 1.5rem; border-bottom: 1px solid #2a2a30; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+    h1 { margin: 0; font-size: 1.4rem; font-weight: 500; }
+    .lang { display: flex; gap: 0.5rem; }
+    .lang button { background: transparent; border: 1px solid #444; color: var(--fg); padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; }
+    .lang button.active { border-color: var(--accent); color: var(--accent); }
+    main { display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem; padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    canvas { width: 100%; height: auto; background: #111; border-radius: 8px; display: block; max-height: 70vh; }
+    .controls { background: var(--card); padding: 1.25rem; border-radius: 8px; }
+    label { display: block; margin: 0.8rem 0 0.3rem; font-size: 0.9rem; }
+    input[type="range"], select { width: 100%; }
+    button.action { width: 100%; margin-top: 1rem; padding: 0.7rem; background: var(--accent); color: #111; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button.action:hover { opacity: 0.9; }
+    .hint { font-size: 0.8rem; opacity: 0.7; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Texture Atelier</h1>
+    <div class="lang">
+      <button data-lang="fr" class="active">FR</button>
+      <button data-lang="en">EN</button>
+      <button data-lang="kab">ⵜⴰⵇⴱⴰⵢⵍⵉⵜ</button>
+    </div>
+  </header>
+  <main>
+    <div>
+      <canvas id="canvas" width="800" height="800"></canvas>
+    </div>
+    <div class="controls">
+      <label id="lbl-type">Type de texture</label>
+      <select id="type">
+        <option value="noise">Bruit / Noise</option>
+        <option value="grain">Grain film</option>
+        <option value="paper">Papier / Paper</option>
+        <option value="fabric">Tissu / Fabric</option>
+        <option value="clouds">Nuages / Clouds</option>
+      </select>
+      <label id="lbl-scale">Échelle</label>
+      <input type="range" id="scale" min="1" max="80" value="20">
+      <label id="lbl-contrast">Contraste</label>
+      <input type="range" id="contrast" min="0" max="100" value="50">
+      <label id="lbl-seed">Graine (seed)</label>
+      <input type="range" id="seed" min="1" max="1000" value="42">
+      <button class="action" id="gen">Générer</button>
+      <button class="action" id="download" style="background:#444;color:#fff;">Télécharger PNG</button>
+      <p class="hint" id="hint">100 % local · rien n'est envoyé · MIT</p>
+    </div>
+  </main>
+  <script>
+    const i18n = {
+      fr: { title: "Texture Atelier", type: "Type de texture", scale: "Échelle", contrast: "Contraste", seed: "Graine", gen: "Générer", dl: "Télécharger PNG", hint: "100 % local · rien n'est envoyé · MIT" },
+      en: { title: "Texture Atelier", type: "Texture type", scale: "Scale", contrast: "Contrast", seed: "Seed", gen: "Generate", dl: "Download PNG", hint: "100 % local · nothing is uploaded · MIT" },
+      kab: { title: "Texture Atelier", type: "Anaw n texture", scale: "Aseggas", contrast: "Contrast", seed: "TaneƓmast", gen: "Sbedd", dl: "Sider PNG", hint: "100 % local · ur yettwazen ara · MIT" }
+    };
+    let lang = "fr";
+    function setLang(l) {
+      lang = l;
+      document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("active", b.dataset.lang === l));
+      const t = i18n[l];
+      document.getElementById("title").textContent = t.title;
+      document.getElementById("lbl-type").textContent = t.type;
+      document.getElementById("lbl-scale").textContent = t.scale;
+      document.getElementById("lbl-contrast").textContent = t.contrast;
+      document.getElementById("lbl-seed").textContent = t.seed;
+      document.getElementById("gen").textContent = t.gen;
+      document.getElementById("download").textContent = t.dl;
+      document.getElementById("hint").textContent = t.hint;
+    }
+    document.querySelectorAll(".lang button").forEach(b => b.onclick = () => setLang(b.dataset.lang));
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    function mulberry32(a) {
+      return function() {
+        let t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      }
+    }
+
+    function generate() {
+      const type = document.getElementById("type").value;
+      const scale = +document.getElementById("scale").value;
+      const contrast = +document.getElementById("contrast").value / 100;
+      const seed = +document.getElementById("seed").value;
+      const rand = mulberry32(seed);
+      const w = canvas.width, h = canvas.height;
+      const img = ctx.createImageData(w, h);
+      const data = img.data;
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let v = 0;
+          if (type === "noise") {
+            v = rand();
+          } else if (type === "grain") {
+            v = Math.pow(rand(), 2.2);
+          } else if (type === "paper") {
+            const n = Math.sin(x * 0.05) * Math.cos(y * 0.03) + rand() * 0.3;
+            v = (n + 1) / 2;
+          } else if (type === "fabric") {
+            const wx = Math.sin(x / scale) * 0.5 + 0.5;
+            const wy = Math.sin(y / scale) * 0.5 + 0.5;
+            v = (wx + wy) / 2 * (0.7 + rand() * 0.3);
+          } else if (type === "clouds") {
+            const nx = x / scale, ny = y / scale;
+            v = Math.sin(nx) * Math.cos(ny) * 0.5 + 0.5;
+            v = Math.pow(v, 1.5) + rand() * 0.1;
+          }
+          v = Math.max(0, Math.min(1, (v - 0.5) * (1 + contrast * 2) + 0.5));
+          const g = Math.floor(v * 255);
+          const i = (y * w + x) * 4;
+          data[i] = data[i+1] = data[i+2] = g;
+          data[i+3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+
+    document.getElementById("gen").onclick = generate;
+    document.getElementById("download").onclick = () => {
+      const a = document.createElement("a");
+      a.download = "texture-" + document.getElementById("type").value + ".png";
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    };
+    ["type","scale","contrast","seed"].forEach(id => document.getElementById(id).oninput = generate);
+    generate();
+    setLang("fr");
+  </script>
+</body>
+</html>
